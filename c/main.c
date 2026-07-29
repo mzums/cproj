@@ -11,8 +11,6 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-const int COLOR_NUM = 8;
-
 typedef struct
 {
     unsigned char r;
@@ -31,11 +29,43 @@ int comp(const void *a, const void *b)
 
 int main(int argc, char *argv[])
 {
-    if (argc < 3)
+    int color_num = 8;
+    float scale = 1.0;
+    char *filename = NULL;
+
+    for (int i = 1; i < argc; i++)
     {
-        printf("Usage: %s <file>\n", argv[0]);
-        return 1;
+        if (strcmp(argv[i], "--colors") == 0 ||
+            strcmp(argv[i], "-c") == 0)
+        {
+            if (i + 1 < argc)
+            {
+                color_num = atoi(argv[++i]);
+            }
+        }
+        else if (strncmp(argv[i], "-c=", 3) == 0)
+        {
+            color_num = atoi(argv[i] + 3);
+        }
+        else if (strcmp(argv[i], "--scale") == 0 ||
+                 strcmp(argv[i], "-s") == 0)
+        {
+            if (i + 1 < argc)
+            {
+                scale = atof(argv[++i]);
+            }
+        }
+        else if (strncmp(argv[i], "-s=", 3) == 0)
+        {
+            scale = atof(argv[i] + 3);
+        }
+        else
+        {
+            filename = argv[i];
+        }
     }
+
+    printf("color num %d\n", color_num);
 
     int width, height, channels;
 
@@ -44,7 +74,11 @@ int main(int argc, char *argv[])
         &width,
         &height,
         &channels,
-        0);
+        4);
+
+    channels = 4;
+
+    printf("channels: %d\n", channels);
 
     if (!img)
     {
@@ -53,8 +87,6 @@ int main(int argc, char *argv[])
     }
 
     printf("Original: %dx%d\n", width, height);
-
-    float scale = atof(argv[2]);
 
     int newWidth = width * scale;
     int newHeight = height * scale / 1.3;
@@ -79,13 +111,23 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    ColorCount hist[4096];
+    ColorCount hist[4096] = {0};
 
-    for (int i = 0; i < width * height * 3; i += 3)
+    for (int i = 0; i < width * height * channels; i += channels)
     {
         unsigned char r = img[i];
         unsigned char g = img[i + 1];
         unsigned char b = img[i + 2];
+        unsigned char a = 255;
+        if (channels == 4)
+        {
+            a = img[i + 3];
+        }
+
+        if (a < 20)
+        {
+            continue;
+        }
 
         int index =
             ((r >> 4) << 8) |
@@ -101,7 +143,7 @@ int main(int argc, char *argv[])
     int n = sizeof(hist) / sizeof(hist[0]);
     qsort(hist, n, sizeof(hist[0]), comp);
 
-    for (int i = 0; i < COLOR_NUM; i++)
+    for (int i = 0; i < color_num; i++)
     {
         printf(
             "%d: RGB(%d,%d,%d) count=%d\n",
@@ -128,16 +170,26 @@ int main(int argc, char *argv[])
     {
         for (int x = 0; x < newWidth; x++)
         {
-            int index = (y * newWidth + x) * 3;
+            int index = (y * newWidth + x) * channels;
 
             unsigned char r = resized[index];
             unsigned char g = resized[index + 1];
             unsigned char b = resized[index + 2];
+            unsigned char a = 255;
+            if (channels == 4)
+            {
+                a = resized[index + 3];
+                if (a < 50)
+                {
+                    printf("  ");
+                    continue;
+                }
+            }
 
-            int dist[COLOR_NUM];
+            int dist[color_num];
             int minn = 1000;
             int idx = 0;
-            for (int i = 0; i < COLOR_NUM; i++)
+            for (int i = 0; i < color_num; i++)
             {
                 dist[i] = pow(pow(r - hist[i].r, 2) + pow(g - hist[i].g, 2) + pow(b - hist[i].b, 2), 1.0 / 3.0);
                 if (dist[i] < minn)
