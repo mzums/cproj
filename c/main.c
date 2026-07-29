@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <stdbool.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -32,6 +33,8 @@ int main(int argc, char *argv[])
     int color_num = 8;
     float scale = 1.0;
     char *filename = NULL;
+    bool ascii = true;
+    bool monochrome = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -55,6 +58,16 @@ int main(int argc, char *argv[])
                 scale = atof(argv[++i]);
             }
         }
+        else if (strcmp(argv[i], "--no_ascii") == 0 ||
+                 strcmp(argv[i], "-n") == 0)
+        {
+            ascii = false;
+        }
+        else if (strcmp(argv[i], "--monochrome") == 0 ||
+                 strcmp(argv[i], "-m") == 0)
+        {
+            monochrome = true;
+        }
         else if (strncmp(argv[i], "-s=", 3) == 0)
         {
             scale = atof(argv[i] + 3);
@@ -64,8 +77,6 @@ int main(int argc, char *argv[])
             filename = argv[i];
         }
     }
-
-    printf("color num %d\n", color_num);
 
     int width, height, channels;
 
@@ -78,18 +89,14 @@ int main(int argc, char *argv[])
 
     channels = 4;
 
-    printf("channels: %d\n", channels);
-
     if (!img)
     {
         printf("Failed to load image\n");
         return 1;
     }
 
-    printf("Original: %dx%d\n", width, height);
-
     int newWidth = width * scale;
-    int newHeight = height * scale / 1.3;
+    int newHeight = height * scale / 1.2;
 
     unsigned char *resized = malloc(
         newWidth * newHeight * channels);
@@ -143,17 +150,6 @@ int main(int argc, char *argv[])
     int n = sizeof(hist) / sizeof(hist[0]);
     qsort(hist, n, sizeof(hist[0]), comp);
 
-    for (int i = 0; i < color_num; i++)
-    {
-        printf(
-            "%d: RGB(%d,%d,%d) count=%d\n",
-            i,
-            hist[i].r,
-            hist[i].g,
-            hist[i].b,
-            hist[i].count);
-    }
-
     stbi_write_png(
         "resized.png",
         newWidth,
@@ -164,7 +160,7 @@ int main(int argc, char *argv[])
 
     stbi_image_free(img);
 
-    printf("Done\n");
+    printf("\n");
 
     for (int y = 0; y < newHeight; y++)
     {
@@ -199,13 +195,31 @@ int main(int argc, char *argv[])
                 }
             }
 
-            printf(
-                "\033[48;2;%d;%d;%dm  \033[0m",
-                hist[idx].r, hist[idx].g, hist[idx].b);
+            const char *density = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^'.         ";
+            int brightness = 255 - (r + b + g) / 3;
+
+            char c = density[brightness * 76 / 255];
+
+            char *print_str = "\033[38;2;%d;%d;%dm%c%c\033[0m";
+            if (!monochrome)
+            {
+                printf(
+                    ascii ? "\033[38;2;%d;%d;%dm%c%c\033[0m" : "\033[48;2;%d;%d;%dm  \033[0m",
+                    hist[idx].r,
+                    hist[idx].g, hist[idx].b, c, c);
+            }
+            else
+            {
+                printf(
+                    ascii ? "\033[38;2;%d;%d;%dm%c%c\033[0m" : "\033[48;2;%d;%d;%dm  \033[0m",
+                    brightness,
+                    brightness, brightness, c, c);
+            }
         }
 
         printf("\n");
     }
+    printf("\n");
 
     free(resized);
 
