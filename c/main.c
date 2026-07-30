@@ -22,10 +22,15 @@ typedef struct
 
 int comp(const void *a, const void *b)
 {
-    const ColorCount *ca = a;
-    const ColorCount *cb = b;
+    const ColorCount *ca = (const ColorCount *)a;
+    const ColorCount *cb = (const ColorCount *)b;
 
-    return cb->count - ca->count;
+    if (ca->count < cb->count)
+        return 1;
+    if (ca->count > cb->count)
+        return -1;
+
+    return 0;
 }
 
 int main(int argc, char *argv[])
@@ -35,6 +40,8 @@ int main(int argc, char *argv[])
     char *filename = NULL;
     bool ascii = true;
     bool monochrome = false;
+    float brightness = 1.0;
+    int liftblack = 0;
 
     for (int i = 1; i < argc; i++)
     {
@@ -58,6 +65,10 @@ int main(int argc, char *argv[])
                 scale = atof(argv[++i]);
             }
         }
+        else if (strncmp(argv[i], "-s=", 3) == 0)
+        {
+            scale = atof(argv[i] + 3);
+        }
         else if (strcmp(argv[i], "--no_ascii") == 0 ||
                  strcmp(argv[i], "-n") == 0)
         {
@@ -68,9 +79,30 @@ int main(int argc, char *argv[])
         {
             monochrome = true;
         }
-        else if (strncmp(argv[i], "-s=", 3) == 0)
+        else if (strcmp(argv[i], "--brightness") == 0 ||
+                 strcmp(argv[i], "-b") == 0)
         {
-            scale = atof(argv[i] + 3);
+            if (i + 1 < argc)
+            {
+                brightness = atof(argv[++i]);
+                printf("!!!!!!");
+            }
+        }
+        else if (strncmp(argv[i], "-b=", 3) == 0)
+        {
+            brightness = atof(argv[i] + 3);
+        }
+        else if (strcmp(argv[i], "--liftblack") == 0 ||
+                 strcmp(argv[i], "-l") == 0)
+        {
+            if (i + 1 < argc)
+            {
+                liftblack = atof(argv[++i]);
+            }
+        }
+        else if (strncmp(argv[i], "-l=", 3) == 0)
+        {
+            liftblack = atof(argv[i] + 3);
         }
         else
         {
@@ -96,7 +128,7 @@ int main(int argc, char *argv[])
     }
 
     int newWidth = width * scale;
-    int newHeight = height * scale / 1.2;
+    int newHeight = height * scale;
 
     unsigned char *resized = malloc(
         newWidth * newHeight * channels);
@@ -150,6 +182,13 @@ int main(int argc, char *argv[])
     int n = sizeof(hist) / sizeof(hist[0]);
     qsort(hist, n, sizeof(hist[0]), comp);
 
+    for (int i = 0; i < color_num; ++i)
+    {
+        hist[i].r = fmin(255, hist[i].r * brightness);
+        hist[i].g = fmin(255, hist[i].g * brightness);
+        hist[i].b = fmin(255, hist[i].b * brightness);
+    }
+
     stbi_write_png(
         "resized.png",
         newWidth,
@@ -161,6 +200,12 @@ int main(int argc, char *argv[])
     stbi_image_free(img);
 
     printf("\n");
+
+    char density[128] = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^'.";
+    size_t char_num = strlen(density);
+    memset(density + char_num, ' ', liftblack);
+    density[char_num + liftblack] = '\0';
+    char_num = strlen(density);
 
     for (int y = 0; y < newHeight; y++)
     {
@@ -195,12 +240,9 @@ int main(int argc, char *argv[])
                 }
             }
 
-            const char *density = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^'.         ";
+            char_num = strlen(density);
             int brightness = 255 - (r + b + g) / 3;
-
-            char c = density[brightness * 76 / 255];
-
-            char *print_str = "\033[38;2;%d;%d;%dm%c%c\033[0m";
+            char c = density[brightness * (char_num - 1) / 255];
             if (!monochrome)
             {
                 printf(
