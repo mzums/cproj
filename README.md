@@ -1,4 +1,4 @@
-# Terminal image to ascii
+# Ascify
 
 ## Features
 
