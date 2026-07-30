@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <math.h>
 #include <stdbool.h>
+#include <unistd.h>
+#include <signal.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -28,28 +30,6 @@ int comp(const void *a, const void *b)
     return cb->count - ca->count;
 }
 
-int check_gif(const char *filename)
-{
-    FILE *file = fopen(filename, "rb");
-    if (file == NULL)
-    {
-        return 0;
-    }
-
-    char header[6];
-
-    if (fread(header, 1, 6, file) != 6)
-    {
-        fclose(file);
-        return 0;
-    }
-
-    fclose(file);
-
-    return memcmp(header, "GIF87a", 6) == 0 ||
-           memcmp(header, "GIF89a", 6) == 0;
-}
-
 unsigned char *resize(unsigned char *img, int width, int height, int newWidth, int newHeight, int channels)
 {
     unsigned char *resized = malloc(
@@ -72,10 +52,18 @@ unsigned char *resize(unsigned char *img, int width, int height, int newWidth, i
         return NULL;
     }
 
+    stbi_write_png(
+        "resized.png",
+        newWidth,
+        newHeight,
+        channels,
+        resized,
+        newWidth * channels);
+
     return resized;
 }
 
-ColorCount *create_hist(unsigned char *img, int width, int height, int channels, ColorCount hist[4096])
+ColorCount *create_hist(unsigned char *img, int width, int height, int channels, int color_num, float brightness, ColorCount hist[4096], int n)
 {
     memset(hist, 0, sizeof(ColorCount) * 4096);
 
@@ -106,6 +94,15 @@ ColorCount *create_hist(unsigned char *img, int width, int height, int channels,
         hist[index].count++;
     }
 
+    qsort(hist, n, sizeof(hist[0]), comp);
+
+    for (int i = 0; i < color_num; ++i)
+    {
+        hist[i].r = fmin(255, hist[i].r * brightness);
+        hist[i].g = fmin(255, hist[i].g * brightness);
+        hist[i].b = fmin(255, hist[i].b * brightness);
+    }
+
     return hist;
 }
 
@@ -124,7 +121,7 @@ void print_img(unsigned char *img, int width, int height, int channels, int colo
             if (channels == 4)
             {
                 a = img[index + 3];
-                if (a < 50)
+                if (a < 20)
                 {
                     printf("  ");
                     continue;
@@ -146,15 +143,19 @@ void print_img(unsigned char *img, int width, int height, int channels, int colo
 
             char density[128] = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^'.";
             size_t char_num = strlen(density);
-            memset(density + char_num, ' ', liftblack);
-            density[char_num + liftblack] = '\0';
-            char_num = strlen(density);
+            int max_spaces = sizeof(density) - char_num - 1;
+            if (liftblack > max_spaces)
+                liftblack = max_spaces;
+            if (liftblack > 0)
+            {
+                memset(density + char_num, ' ', liftblack);
+                density[char_num + liftblack] = '\0';
+            }
+            int total_len = char_num + liftblack;
 
             int brightness = 255 - (r + b + g) / 3;
+            char c = density[brightness * (total_len - 1) / 255];
 
-            char c = density[brightness * char_num / 255];
-
-            char *print_str = "\033[38;2;%d;%d;%dm%c%c\033[0m";
             if (!monochrome)
             {
                 printf(
@@ -177,14 +178,13 @@ void print_img(unsigned char *img, int width, int height, int channels, int colo
 
 int main(int argc, char *argv[])
 {
-    int color_num = 8;
+    int color_num = 32;
     float scale = 1.0;
     char *filename = NULL;
     bool ascii = true;
     bool monochrome = false;
     float brightness = 1.0;
     int liftblack = 0;
-    bool isgif = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -246,75 +246,48 @@ int main(int argc, char *argv[])
         {
             liftblack = atoi(argv[i] + 3);
         }
+        else if (strcmp(argv[i], "--help") == 0 ||
+                 strcmp(argv[i], "-h") == 0)
+        {
+            printf("Usage: %s [options] <image_file>\n", argv[0]);
+            printf("Options:\n");
+            printf("  -c, --colors N        Number of colors to use (default 8)\n");
+            printf("  -s, --scale N         Scale factor (default 1.0)\n");
+            printf("  -n, --no_ascii        Use block characters instead of ASCII\n");
+            printf("  -m, --monochrome      Monochrome output\n");
+            printf("  -b, --brightness N    Brightness multiplier (default 1.0)\n");
+            printf("  -l, --liftblack N     Add N spaces to the density map for black pixels\n");
+            printf("  -h, --help            Show this help\n");
+            printf("  <image_file>          Path to image\n");
+            return 0;
+        }
         else
         {
             filename = argv[i];
         }
     }
 
-    if (check_gif(argv[1]))
-    {
-        isgif = true;
-        printf("is gif");
-    }
-
     int width, height, channels;
-
-    unsigned char *img = stbi_load(
-        argv[1],
-        &width,
-        &height,
-        &channels,
-        4);
-
-    channels = 4;
-
+    unsigned char *img = stbi_load(argv[1], &width, &height, &channels, 4);
     if (!img)
     {
         printf("Failed to load image\n");
         return 1;
     }
-
     int newWidth = width * scale;
     int newHeight = height * scale;
-
-    unsigned char *resized = resize(img, width, height, newWidth, newHeight, channels);
-
-    if (resized == NULL)
-    {
-        printf("Resize failed\n");
+    unsigned char *resized = resize(img, width, height, newWidth, newHeight, 4);
+    stbi_image_free(img);
+    if (!resized)
         return 1;
-    }
 
     ColorCount hist[4096];
-    create_hist(resized, newWidth, newHeight, channels, hist);
-
-    int n = sizeof(hist) / sizeof(hist[0]);
-    qsort(hist, n, sizeof(hist[0]), comp);
-
-    for (int i = 0; i < color_num; ++i)
-    {
-        hist[i].r = fmin(255, hist[i].r * brightness);
-        hist[i].g = fmin(255, hist[i].g * brightness);
-        hist[i].b = fmin(255, hist[i].b * brightness);
-    }
-
-    stbi_write_png(
-        "resized.png",
-        newWidth,
-        newHeight,
-        channels,
-        resized,
-        newWidth * channels);
-
-    stbi_image_free(img);
+    int hist_size = sizeof(hist) / sizeof(hist[0]);
+    create_hist(resized, newWidth, newHeight, 4, color_num, brightness, hist, hist_size);
 
     printf("\n");
-
-    print_img(resized, newWidth, newHeight, channels, color_num, liftblack, monochrome, ascii, hist);
-
+    print_img(resized, newWidth, newHeight, 4, color_num, liftblack, monochrome, ascii, hist);
     printf("\n");
-
     free(resized);
 
     return 0;
